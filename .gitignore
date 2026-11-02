@@ -1,0 +1,15 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Study outputs and derived caches (raw price snapshot in data/raw is committed)
+runs/
+cache/
+.pytest_cache/

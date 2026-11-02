@@ -1,0 +1,56 @@
+# Main study configuration. Every value here affects results; none has a default in code.
+# Sources: PROJECT_GUIDE.md chapter in brackets; decisions on guide gaps are in CLAUDE.md "Conventions".
+
+[study]
+root_seed = 20261102
+
+[data]
+raw_prices = "data/raw/prices.parquet"
+manifest = "data/raw/manifest.json"
+bank_dir = "cache"
+data_end = "2026-10-30"          # [CLAUDE.md] last target date of the test window
+test_years = 2                   # [Ch.3] test window = last 2 calendar years
+lookback = 16                    # [Ch.2]
+price_adjustment = "split_dividend"
+
+[grid]                           # [Ch.6]
+depths = [1, 2, 4, 8]
+widths = [8, 16, 32, 64]
+regularizations = ["none", "wd"]
+tiers = [1, 2, 3, 4, 5]
+histories = [3, 7, 18]
+
+[training]                       # [Ch.4, Ch.5]
+epochs = 500
+steps_per_epoch = 25
+warmup_fraction = 0.05
+beta = 0.9
+beta2 = 0.999
+eps = 1e-8
+leaky_slope = 0.01
+checkpoint_every = 25
+pred_snapshot_every = 25
+eval_chunk = 8192                # windows per eval forward chunk (memory only; does not change values)
+
+[tuning]                         # [Ch.7, Ch.13]
+n_trials = 32
+halton_seed = 0
+objective_tail = 25
+tuning_fraction = 0.8
+calibration_lr = [1e-5, 1e-1]
+calibration_wd = [1e-5, 1.0]
+range_margin_decades = 0.75
+calibration_cells = [[1, 3], [3, 7], [4, 18]]
+calibration_corners = [[1, 8], [1, 64], [8, 8], [8, 64]]
+
+[seeds]                          # [Ch.8]
+n_seeds = 32
+
+[analysis]                       # [Ch.8-12]
+alpha = 0.05
+beta = 0.2
+v1_block = 25
+sentinel_test_r2 = -1000.0       # untunable recipes [CLAUDE.md]
+sentinel_gap = 1000.0
+sentinel_t1_logratio = 1000.0
+sentinel_v1 = 1000.0

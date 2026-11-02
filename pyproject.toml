@@ -1,0 +1,51 @@
+[project]
+name = "capacity-study"
+version = "0.1.0"
+description = "Characteristics of training-saturated MLPs in the bias regime"
+readme = "README.md"
+authors = [
+    { name = "itu-itis22-ciftcii22", email = "114388666+itu-itis22-ciftcii22@users.noreply.github.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "optuna>=5.0.0",
+    "pandas>=3.0.6",
+    "pyarrow>=26.0.0",
+    "scipy>=1.18.1",
+    "torch[device-gfx1032]==2.14.0+rocm10.1.0",
+    "yfinance>=1.7.0",
+]
+
+[project.scripts]
+capacity-study = "capacity_study.cli:main"
+
+[project.optional-dependencies]
+analysis = [
+    "matplotlib>=3.11.2",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+index-strategy = "unsafe-first-match"
+override-dependencies = [
+    "triton; sys_platform != 'win32'",
+]
+environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+required-environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+
+[[tool.uv.index]]
+name = "amd"
+url = "https://stable.repo.amd.com/rocm/whl-next/"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "schedulefree==1.4.1",
+]
