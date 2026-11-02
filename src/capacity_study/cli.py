@@ -77,6 +77,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--workers", default="1,2,4,6,8")
+
+    p = sub.add_parser("analyze", help="quantities, status, regions, characteristics, figures (needs all final jobs)")
+    _study(p)
+    p.add_argument("--allow-dirty", action="store_true")
+    p.add_argument("--overwrite", action="store_true", help="replace this commit's existing analysis output")
+    p.add_argument("--no-figures", action="store_true")
     return parser
 
 
@@ -123,4 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "bench":
         from capacity_study.bench import bench
         print(bench(args.study, args.device, args.epochs, [int(w) for w in args.workers.split(",")]))
+    elif args.command == "analyze":
+        from capacity_study.analysis.run import analyze
+        print(analyze(args.study, args.allow_dirty, args.overwrite, make_figures=not args.no_figures))
     return 0

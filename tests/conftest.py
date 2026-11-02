@@ -24,9 +24,9 @@ def tiny_config_dict(tmp: Path) -> dict:
         "tuning": {"n_trials": 3, "halton_seed": 0, "objective_tail": 2, "tuning_fraction": 0.8,
                    "calibration_lr": [1e-5, 1e-1], "calibration_wd": [1e-5, 1.0], "range_margin_decades": 0.75,
                    "calibration_cells": [[1, 1], [2, 2]], "calibration_corners": [[1, 8], [2, 8]]},
-        "seeds": {"n_seeds": 2},
-        "analysis": {"alpha": 0.05, "beta": 0.2, "v1_block": 2, "sentinel_test_r2": -1000.0,
-                     "sentinel_gap": 1000.0, "sentinel_t1_logratio": 1000.0, "sentinel_v1": 1000.0},
+        "seeds": {"n_seeds": 3},
+        "analysis": {"alpha": 0.05, "beta": 0.2, "v1_block": 2, "sentinel_test_r2": -1.0e12,
+                     "sentinel_gap": 1.0e12, "sentinel_t1_logratio": 1.0e12, "sentinel_v1": 1.0e12},
     }
 
 

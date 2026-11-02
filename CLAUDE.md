@@ -53,7 +53,7 @@ Where the guide is silent, the decision is recorded below — warn the user abou
 - Ties in the objective go to the lowest trial index.
 - Edge hit: chosen value within (log range)/32 of either range end, per dimension.
 - Untunable recipe (all trials infeasible): final stage skipped; analysis assigns sentinel quantities from config
-  (outside any real result, asserted), status label `untunable`; two untunable recipes merge (D = 0), never with
+  (±1e12, outside any real result; asserted ≥ 10× beyond every real value — note barely trained nets can reach R² ≈ −1e4), status label `untunable`; two untunable recipes merge (D = 0), never with
   tunable ones; figures draw them in a fixed color outside the scale.
 
 ### Statistics
