@@ -1,5 +1,6 @@
 # Main study configuration. Every value here affects results; none has a default in code.
-# Sources: PROJECT_GUIDE.md chapter in brackets; decisions on guide gaps are in CLAUDE.md "Conventions".
+# Sources: docs/PROJECT_GUIDE.md chapter in brackets (its Appendix E gives the brief section, docs/PROJECT_BRIEF.md);
+# implementation decisions where the brief is silent are in CLAUDE.md "Conventions".
 
 [study]
 root_seed = 20261102

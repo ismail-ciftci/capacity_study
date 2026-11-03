@@ -1,7 +1,7 @@
 # Capacity study
 
-Characteristics of training-saturated MLPs in the bias regime. Spec: `PROJECT_GUIDE.md`. Conventions and decisions
-on gaps in the guide: `CLAUDE.md`.
+Characteristics of training-saturated MLPs in the bias regime. Spec: `docs/PROJECT_BRIEF.md`, explained in
+`docs/PROJECT_GUIDE.md`; `docs/README.md` maps the docs to the code. Implementation conventions: `CLAUDE.md`.
 
 ## Running the study
 

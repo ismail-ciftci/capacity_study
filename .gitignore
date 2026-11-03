@@ -13,3 +13,7 @@ wheels/
 runs/
 cache/
 .pytest_cache/
+
+# Literature originals and text extractions (not redistributable; docs/literature/index.md records them by sha256)
+docs/literature/sources/
+docs/literature/text/

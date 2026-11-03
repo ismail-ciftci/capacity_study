@@ -3,8 +3,25 @@
 Type: experiment
 
 Characterizes training-saturated MLPs in the bias regime over a closed grid of 480 recipes.
-Spec: `PROJECT_GUIDE.md` (the brief it references is not in the repo; the guide is treated as the spec).
-Where the guide is silent, the decision is recorded below — warn the user about any new gap instead of deciding silently.
+
+- Spec, source of truth: `docs/PROJECT_BRIEF.md` (agent-facing). `docs/PROJECT_GUIDE.md` teaches it for onboarding
+  and adds no decisions; guide chapter n explains brief section Sn, and the guide's readability decides structure where
+  the two are coupled. Any brief change is carried into the guide in the same change: `tests/test_docs.py` names the
+  stale chapters and prints their new `Synced:` lines. `docs/README.md` maps the docs to code and gives the change
+  protocol.
+- Literature: `docs/literature/index.md`; originals and searchable text extractions are local only
+  (`docs/literature/sources/`, `docs/literature/text/`, gitignored). Grep `text/` to check a `[paper: X]` claim.
+- Docs hold current guidance only; history lives in git. Do not add run reports, change logs or "removed" notes.
+- Where the brief is silent, warn the user instead of deciding silently. Definition-level answers (what is computed)
+  go into the brief once the owner confirms; implementation-level answers go under Conventions below.
+
+## Brief ahead of code
+
+The brief of 2026-11-03 is not yet implemented in these parts; the code still runs the earlier representation.
+Remove each line once code, config and tests follow the brief.
+- S1, S2: window normalization, re-injected mu and log sigma, next-log-price target with de-normalized forecast and the
+  loss on the forecast (code: `data/features.py`, `data/bank.py`, `train.py`).
+- S9: prediction spread on the network output in window units (code: `train.py`, `analysis/quantities.py`).
 
 ## Conventions
 
@@ -14,7 +31,7 @@ Where the guide is silent, the decision is recorded below — warn the user abou
 - **trial**: one hyperparameter configuration of a recipe in the tuning stage (32 per recipe).
 - **seed**: one final-stage training run of a recipe (32 per recipe).
 - **member**: one slice of a batched model (a trial or a seed).
-- **job**: the unit of execution and of results — one batched model packing the two regularization recipes of
+- **job**: the unit of execution and of results: one batched model packing the two regularization recipes of
   one (phase, tier, history, depth, width); K = 64 members.
 - **phase**: `calibration` | `tuning` | `final`.
 - **study**: one directory `runs/<study>/` bound to one config hash.
@@ -26,43 +43,44 @@ Where the guide is silent, the decision is recorded below — warn the user abou
 - Analysis outputs are derived and regenerable; analysis code only reads raw job outputs.
 - Every result-affecting value lives in `configs/*.toml`; no defaults in code for such values.
 
-### Data
+### Data (brief S2, S3)
 - Universe: one-time hard-coded ticker list in `src/capacity_study/universe.py`; not an experiment parameter.
   Test asset JPM. Survivorship bias accepted (C5). Current Yahoo tickers are used for renamed firms: BNY (was BK),
   MRSH (was MMC). Snapshot: 2006-08-22 to 2026-10-30, 5,080 dates, no missing values.
 - Prices: split- and dividend-adjusted close (yfinance `auto_adjust=True`). Raw snapshot is committed with a sha256
   manifest; never refetched automatically.
-- Data end 2026-10-30. Origin = end − 2 calendar years. History start = origin − {3, 7, 18} calendar years.
-  Tuning cutoff = history start + 0.8 × (origin − history start), calendar time.
+- Data end 2026-10-30. Origin = end - 2 calendar years. History start = origin - {3, 7, 18} calendar years.
+  Tuning cutoff = history start + 0.8 x (origin - history start), calendar time.
 - Window membership in a stage/history is decided by its **target date**.
 - No forward fill; windows containing a missing day are dropped.
-- DWT ordering and sign follow the guide pseudocode exactly: details finest→coarsest, (a − b)/√2, then the
-  approximation, then pstd over 4, 8, 16 days.
+- DWT ordering and sign: details finest to coarsest, each (a - b)/sqrt(2), as in the brief S2.
 
-### Training
+### Training (brief S4, S5)
 - Optimizer: `BatchedAdamWScheduleFree`, a vectorized port of `schedulefree.AdamWScheduleFree` (pinned version)
-  with per-member lr/λ tensors, verified against the package in tests. It follows the current package, which
-  applies Adam bias correction in the denominator (the guide/paper describe it folded into lr).
+  with per-member lr/lambda tensors, verified against the package in tests. Bias correction sits in the Adam
+  denominator, as in the package (recorded in brief S5).
 - Batched forward/backward via stacked `bmm`; datasets live on the GPU for the worker's lifetime; no host
   transfers per step.
 
-### Tuning
+### Tuning (brief S7)
 - Halton points: `scipy.stats.qmc.Halton(scramble=True, seed=<fixed>)`, same seed for every recipe; results
-  stored in Optuna via `add_trial` (Optuna's QMCSampler samples the first ask-ahead trial randomly).
+  stored in Optuna via `add_trial`.
 - Infeasible trial: a non-finite loss or parameter at any step; worst objective; Optuna state FAIL.
 - Ties in the objective go to the lowest trial index.
 - Edge hit: chosen value within (log range)/32 of either range end, per dimension.
 - Untunable recipe (all trials infeasible): final stage skipped; analysis assigns sentinel quantities from config
-  (±1e12, outside any real result; asserted ≥ 10× beyond every real value — note barely trained nets can reach R² ≈ −1e4), status label `untunable`; two untunable recipes merge (D = 0), never with
-  tunable ones; figures draw them in a fixed color outside the scale.
+  (+/-1e12, outside any real result; asserted >= 10x beyond every real value, since barely trained nets can reach
+  R^2 ~ -1e4), status label `untunable`; two untunable recipes merge (D = 0), never with tunable ones; figures draw
+  them in a fixed color outside the scale.
 
-### Statistics
+### Statistics (brief S8)
 - Variance estimators use ddof = 1 (seed statistics and T1's across-seed variance).
 
-### Hardware
-- AMD RX 6650 XT (8 GB, ROCm gfx1032) on Windows; a second identical card will be added. Devices are a config/CLI
-  list; several worker processes per GPU, count chosen by `bench`.
-- Bench (2026-11-02, one RX 6650 XT, 64-member packs, steady-state s/epoch at W=1): d1w8 tier1/3y 0.022,
+### Hardware (brief S13)
+- Two AMD RX 6650 XT (8 GB, ROCm gfx1032) on Windows. Devices are a CLI list; several worker processes per GPU,
+  count chosen by `bench`.
+- Bench (one RX 6650 XT, 64-member packs, steady-state s/epoch at one worker): d1w8 tier1/3y 0.022,
   d4w8 tier3/18y 0.055, d8w64 tier4-5/18y 1.02. Only tiny jobs scale with more workers; big ones saturate the GPU,
   and 4+ concurrent big jobs thrash (VRAM). Use `--workers-per-device 3` and let the memory-budget claim rule
-  (estimates ≈ 2× measured peak) keep big jobs to 2 per GPU. Whole study ≈ 8.5 GPU-hours.
+  (estimates ~2x measured peak) keep big jobs to 2 per GPU. Measured: calibration ~11 min, main run ~2.8 h wall
+  on both GPUs.
