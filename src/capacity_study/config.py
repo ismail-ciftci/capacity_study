@@ -57,6 +57,7 @@ class TrainingSection:
 @dataclass(frozen=True)
 class TuningSection:
     n_trials: int
+    seeds_per_trial: int
     halton_seed: int
     objective_tail: int
     tuning_fraction: float
@@ -188,8 +189,9 @@ def _validate(cfg: StudyConfig, source: str) -> None:
             raise ConfigError(source, "tuning.calibration_corners", f"corner ({depth}, {width}) not in grid")
     if t.checkpoint_every < 1 or t.pred_snapshot_every < 1 or t.eval_chunk < 1:
         raise ConfigError(source, "training", "checkpoint_every, pred_snapshot_every, eval_chunk must be >= 1")
-    if tu.n_trials < 1 or cfg.seeds.n_seeds < 2:
-        raise ConfigError(source, "tuning.n_trials/seeds.n_seeds", "need >= 1 trial and >= 2 seeds")
+    if tu.n_trials < 1 or tu.seeds_per_trial < 1 or cfg.seeds.n_seeds < 2:
+        raise ConfigError(source, "tuning.n_trials/tuning.seeds_per_trial/seeds.n_seeds",
+                          "need >= 1 trial, >= 1 seed per trial and >= 2 final seeds")
 
 
 def config_from_dict(table: dict, source: str) -> StudyConfig:

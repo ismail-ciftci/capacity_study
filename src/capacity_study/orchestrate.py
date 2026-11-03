@@ -74,13 +74,18 @@ def estimate_memory_mb(cfg: StudyConfig, spec: JobSpec, members: int, n_train: i
     act_eval = members * cfg.training.eval_chunk * w * 4 * 3
     state = members * params * 4 * 7
     perms = members * n_train * 8 * 2
-    data = n_train * 20 * 4 * 2
+    data = n_train * 22 * 4 * 2   # features, target, scale, offset
     return 1.5 * (act_train + act_eval + state + perms + data) / 2 ** 20 + 64.0
 
 
+def members_per_recipe(cfg: StudyConfig, phase: str) -> int:
+    if phase in ("calibration", "tuning"):
+        return cfg.tuning.n_trials * cfg.tuning.seeds_per_trial
+    return cfg.seeds.n_seeds
+
+
 def _members_per_job(cfg: StudyConfig, phase: str, spec: JobSpec) -> int:
-    per_recipe = cfg.tuning.n_trials if phase in ("calibration", "tuning") else cfg.seeds.n_seeds
-    return per_recipe * len(spec.recipe_ids)
+    return members_per_recipe(cfg, phase) * len(spec.recipe_ids)
 
 
 def enqueue(root: Path, phase: str) -> int:

@@ -3,6 +3,10 @@ evaluation weights x, chunked metric logging, atomic checkpoints, pause/resume a
 
 GPU residency: the feature bank is already on the device; the job gathers its datasets once (GPU -> GPU), draws
 permutations on the GPU, and only moves data to the host at flushes (metrics, prediction snapshots, checkpoints).
+
+Output mapping (brief S2): the network predicts in window units; the implied return is scale * output + offset
+(the forecast mu + sigma * output minus log P(t)). The loss, R^2 and prediction snapshots use the implied return;
+prediction spread (brief S9) uses the raw output.
 """
 import json
 import time
@@ -23,9 +27,10 @@ from capacity_study.optim import BatchedAdamWScheduleFree
 from capacity_study.recipes import JobSpec, Recipe
 from capacity_study.store import (JobPaths, StudyPaths, append_jsonl, atomic_torch_save, atomic_write_bytes,
                                   atomic_write_json, sha256_path, utc_now)
-from capacity_study.tuning import Ranges, TuningResult, objective, record_optuna, select_best, trial_points
+from capacity_study.tuning import (Ranges, TuningResult, objective, record_optuna, select_best, trial_objectives,
+                                   trial_points)
 
-METRIC_COLUMNS = ("train_loss_y", "pooled_train_mse_x", "r2_train_x", "r2_eval_x", "pred_std_eval_x",
+METRIC_COLUMNS = ("train_loss_y", "pooled_train_mse_x", "r2_train_x", "r2_eval_x", "output_std_eval_x",
                   "x_norm", "x_dist_init", "finite")
 
 
@@ -35,19 +40,22 @@ class Member:
     recipe_id: int
     regularization: str
     role: str            # "trial" | "seed"
-    role_index: int      # trial index or seed index
+    role_index: int      # trial index (tuning) or seed index (final)
+    seed: int            # seed index: within a trial (tuning) or of the recipe (final)
     lr: float
     wd: float
     stream_key: tuple[int, int, int]
 
 
 def tuning_members(cfg: StudyConfig, spec: JobSpec, recipes: dict[int, Recipe], ranges: Ranges) -> list[Member]:
+    """Trial-major: member (trial t, seed j). Seed j's stream is shared by every trial of the recipe (paired)."""
     members = []
     for rid in spec.recipe_ids:
         reg = recipes[rid].regularization
-        key = rng.member_key(spec.phase, rid, 0)  # all trials share init and data order
         for t, p in enumerate(trial_points(cfg, reg, ranges)):
-            members.append(Member(len(members), rid, reg, "trial", t, p["lr"], p["wd"], key))
+            for j in range(cfg.tuning.seeds_per_trial):
+                members.append(Member(len(members), rid, reg, "trial", t, j, p["lr"], p["wd"],
+                                      rng.member_key(spec.phase, rid, j)))
     return members
 
 
@@ -59,7 +67,7 @@ def final_members(cfg: StudyConfig, spec: JobSpec, recipes: dict[int, Recipe],
         if result.untunable:
             continue
         for s in range(cfg.seeds.n_seeds):
-            members.append(Member(len(members), rid, recipes[rid].regularization, "seed", s, result.best_lr,
+            members.append(Member(len(members), rid, recipes[rid].regularization, "seed", s, s, result.best_lr,
                                   result.best_wd, rng.member_key("final", rid, s)))
     return members
 
@@ -95,6 +103,11 @@ def batch_bounds(n: int, steps: int) -> list[tuple[int, int]]:
     return bounds
 
 
+def implied_return(output: torch.Tensor, scale: torch.Tensor, offset: torch.Tensor) -> torch.Tensor:
+    """output (K, n) in window units; scale, offset (n,) -> implied return (K, n) = forecast - log P(t)."""
+    return output * scale.unsqueeze(0) + offset.unsqueeze(0)
+
+
 def r2_vs_persistence(pred: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     """pred (K, n), y (n,) -> (K,) float64: 1 - sum((y - pred)^2) / sum(y^2)."""
     yd = y.double()
@@ -109,11 +122,14 @@ def predict(model: BatchedMLP, X: torch.Tensor, chunk: int) -> torch.Tensor:
 
 
 @torch.no_grad()
-def pooled_mse(model: BatchedMLP, X: torch.Tensor, y: torch.Tensor, chunk: int) -> torch.Tensor:
+def pooled_mse(model: BatchedMLP, X: torch.Tensor, y: torch.Tensor, scale: torch.Tensor, offset: torch.Tensor,
+               chunk: int) -> torch.Tensor:
+    """MSE of the implied return over a whole set, per member (float64)."""
     k = model.num_members
     total = torch.zeros(k, dtype=torch.float64, device=X.device)
     for i in range(0, X.shape[0], chunk):
-        pred = model(X[i:i + chunk].unsqueeze(0).expand(k, -1, -1))
+        out = model(X[i:i + chunk].unsqueeze(0).expand(k, -1, -1))
+        pred = implied_return(out, scale[i:i + chunk], offset[i:i + chunk])
         total += ((pred.double() - y[i:i + chunk].double().unsqueeze(0)) ** 2).sum(dim=1)
     return total / X.shape[0]
 
@@ -171,9 +187,14 @@ def run_job(ctx: JobContext) -> str:
 
     data = job_data(ctx.bank, cfg, spec.phase, spec.tier, spec.history)
     Xf, yf = ctx.bank.X.reshape(-1, ctx.bank.X.shape[-1]), ctx.bank.y.reshape(-1)
-    X_train, y_train = Xf[data.train].contiguous(), yf[data.train].contiguous()
-    X_side, y_side = Xf[data.train_side].contiguous(), yf[data.train_side].contiguous()
-    X_eval, y_eval = Xf[data.eval].contiguous(), yf[data.eval].contiguous()
+    Sf, Of = ctx.bank.scale.reshape(-1), ctx.bank.offset.reshape(-1)
+
+    def gather(idx: torch.Tensor) -> tuple[torch.Tensor, ...]:
+        return tuple(a[idx].contiguous() for a in (Xf, yf, Sf, Of))
+
+    X_train, y_train, S_train, O_train = gather(data.train)
+    X_side, y_side, S_side, O_side = gather(data.train_side)
+    X_eval, y_eval, S_eval, O_eval = gather(data.eval)
     n = X_train.shape[0]
     data_sizes = {"n_train": n, "n_train_side": X_side.shape[0], "n_eval": X_eval.shape[0],
                   "timeline": data.timeline.as_dict(), "steps_per_epoch": tr.steps_per_epoch,
@@ -226,7 +247,7 @@ def run_job(ctx: JobContext) -> str:
 
     buffer = torch.zeros(tr.checkpoint_every + 1, k, len(METRIC_COLUMNS), dtype=torch.float64, device=device)
     sched_log: list[tuple[float, float]] = []
-    pending_preds: list[tuple[int, torch.Tensor, torch.Tensor]] = []
+    pending_preds: list[tuple[int, torch.Tensor, torch.Tensor, torch.Tensor]] = []
     chunk_start, chunk_t0 = start_epoch + 1, time.perf_counter()
 
     def flush(epoch: int) -> None:
@@ -243,8 +264,9 @@ def run_job(ctx: JobContext) -> str:
         tmp = paths.metrics / f"e{chunk_start:04d}-{epoch:04d}.parquet.tmp"
         frame.to_parquet(tmp, index=False)
         tmp.replace(paths.metrics / f"e{chunk_start:04d}-{epoch:04d}.parquet")
-        for e, p_side, p_eval in pending_preds:
-            atomic_torch_save(paths.preds / f"e{e:04d}.pt", {"train_side": p_side.cpu(), "eval": p_eval.cpu()})
+        for e, p_side, p_eval, o_eval in pending_preds:
+            atomic_torch_save(paths.preds / f"e{e:04d}.pt", {"train_side": p_side.cpu(), "eval": p_eval.cpu(),
+                                                             "eval_output": o_eval.cpu()})
         params = [p.detach().to("cpu", copy=True) for p, _ in model.ordered_parameters()]
         atomic_torch_save(paths.ckpt, {"job_id": spec.job_id, "config_hash": ctx.config_hash,
                                        "git_commit": ctx.code["git_commit"], "epoch": epoch,
@@ -262,7 +284,8 @@ def run_job(ctx: JobContext) -> str:
         loss_acc = torch.zeros(k, device=device)
         for lo, hi in bounds:
             idx = member_perm[:, lo:hi]
-            loss = ((model(X_train[idx]) - y_train[idx]) ** 2).mean(dim=1)
+            pred = model(X_train[idx]) * S_train[idx] + O_train[idx]   # implied return, (K, b)
+            loss = ((pred - y_train[idx]) ** 2).mean(dim=1)
             loss.sum().backward()
             opt.step()
             opt.zero_grad()
@@ -270,14 +293,15 @@ def run_job(ctx: JobContext) -> str:
         sched_log.append((opt.last_sched, opt.last_ckp1))
 
         opt.eval()
-        p_side = predict(model, X_side, tr.eval_chunk)
-        p_eval = predict(model, X_eval, tr.eval_chunk)
+        p_side = implied_return(predict(model, X_side, tr.eval_chunk), S_side, O_side)
+        o_eval = predict(model, X_eval, tr.eval_chunk)
+        p_eval = implied_return(o_eval, S_eval, O_eval)
         row = buffer[epoch - chunk_start]
         row[:, 0] = loss_acc.double() / len(bounds)
-        row[:, 1] = pooled_mse(model, X_train, y_train, tr.eval_chunk)
+        row[:, 1] = pooled_mse(model, X_train, y_train, S_train, O_train, tr.eval_chunk)
         row[:, 2] = r2_vs_persistence(p_side, y_side)
         row[:, 3] = r2_vs_persistence(p_eval, y_eval)
-        row[:, 4] = p_eval.double().std(dim=1, correction=1)
+        row[:, 4] = o_eval.double().std(dim=1, correction=1)
         sq_norm = sum((w.detach().double() ** 2).flatten(1).sum(1) for w in model.weights)
         sq_dist = sum(((w.detach().double() - w0.double()) ** 2).flatten(1).sum(1)
                       for w, w0 in zip(model.weights, init_weights))
@@ -288,7 +312,7 @@ def run_job(ctx: JobContext) -> str:
         row[:, 7] = finite.double()
         snapshot = (is_final and epoch % tr.pred_snapshot_every == 0) or epoch == tr.epochs
         if snapshot:
-            pending_preds.append((epoch, p_side.clone(), p_eval.clone()))
+            pending_preds.append((epoch, p_side.clone(), p_eval.clone(), o_eval.clone()))
         opt.train()
 
         ctx.heartbeat()
@@ -314,14 +338,17 @@ def _write_tuning_results(ctx: JobContext, paths: JobPaths) -> dict:
     tail = df[df["epoch"] > cfg.training.epochs - cfg.tuning.objective_tail]
     finite_all = df.groupby("member")["finite"].min().to_numpy() == 1.0
     r2_tail = tail.pivot(index="epoch", columns="member", values="r2_eval_x").to_numpy()
-    objectives = objective(r2_tail, finite_all)
+    member_objectives = objective(r2_tail, finite_all)
     out = {}
     for rid in ctx.spec.recipe_ids:
-        idx = [m.index for m in ctx.members if m.recipe_id == rid]
-        reg = ctx.members[idx[0]].regularization
-        points = [{"lr": ctx.members[i].lr, "wd": ctx.members[i].wd} for i in idx]
-        result = select_best(rid, reg, points, [objectives[i] for i in idx], ctx.ranges)
-        atomic_write_json(paths.tuning / f"recipe_{rid}.json", result.to_dict() | {"ranges": ctx.ranges.to_dict()})
+        mine = [m for m in ctx.members if m.recipe_id == rid]
+        reg = mine[0].regularization
+        n_trials = max(m.role_index for m in mine) + 1
+        per_trial = [[member_objectives[m.index] for m in mine if m.role_index == t] for t in range(n_trials)]
+        points = [next({"lr": m.lr, "wd": m.wd} for m in mine if m.role_index == t) for t in range(n_trials)]
+        result = select_best(rid, reg, points, trial_objectives(per_trial), ctx.ranges)
+        atomic_write_json(paths.tuning / f"recipe_{rid}.json", result.to_dict() | {
+            "ranges": ctx.ranges.to_dict(), "seed_objectives": per_trial})
         journal = paths.tuning / f"optuna_recipe_{rid}.log"
         if journal.exists():
             journal.unlink()  # a previous attempt died mid-write; the journal is derived from metrics

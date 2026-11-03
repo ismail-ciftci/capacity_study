@@ -1,9 +1,14 @@
 """Feature bank: every asset x every window-end date, built once by `prepare` and loaded once per worker.
 
 Layout (A assets in universe order, T = n_dates - 1 window-end positions; position t ends at date t and targets t+1):
-  X           (A, T, 19) float32   features (zeros where invalid)
-  y           (A, T)     float32   log P(t+1) - log P(t) (zeros where invalid)
-  valid       (A, T)     bool      full lookback and target present (no missing day)
+  X           (A, T, 19) float32   window features, brief S2 (zeros where invalid)
+  y           (A, T)     float32   realized return log P(t+1) - log P(t) (zeros where invalid)
+  scale       (A, T)     float32   window sigma (ones where invalid)
+  offset      (A, T)     float32   window mu - log P(t), computed in float64 (zeros where invalid)
+  valid       (A, T)     bool      full lookback and target present (no missing day) and sigma > 0
+
+The network predicts in window units; its implied return is scale * output + offset, which equals the forecast
+mu + sigma * output minus log P(t). Losses and R^2 are computed on the implied return.
   end_day     (T,)       int32     last input date, days since 1970-01-01
   target_day  (T,)       int32     target date, days since 1970-01-01
 """
@@ -18,18 +23,20 @@ import torch
 from numpy.lib.stride_tricks import sliding_window_view
 
 from capacity_study.config import StudyConfig
-from capacity_study.data.features import haar_features
+from capacity_study.data.features import n_features, window_features, window_statistics
 from capacity_study.data.fetch import load_prices, sha256_file
 from capacity_study.errors import DataIntegrityError, OverwriteRefusedError
 from capacity_study.universe import ALL_TICKERS
 
-FEATURE_VERSION = "haar-orthonormal-v1"
+FEATURE_VERSION = "window-normalized-haar-v2"
 
 
 @dataclass
 class Bank:
     X: torch.Tensor
     y: torch.Tensor
+    scale: torch.Tensor
+    offset: torch.Tensor
     valid: torch.Tensor
     end_day: torch.Tensor
     target_day: torch.Tensor
@@ -42,8 +49,9 @@ class Bank:
         return int(self.end_day.shape[0])
 
     def to(self, device: torch.device | str) -> "Bank":
-        return Bank(self.X.to(device), self.y.to(device), self.valid.to(device), self.end_day.to(device),
-                    self.target_day.to(device), self.tickers, self.key, self.sha256)
+        return Bank(self.X.to(device), self.y.to(device), self.scale.to(device), self.offset.to(device),
+                    self.valid.to(device), self.end_day.to(device), self.target_day.to(device), self.tickers,
+                    self.key, self.sha256)
 
 
 def bank_key(cfg: StudyConfig, manifest_sha: str) -> str:
@@ -66,20 +74,27 @@ def build_bank_arrays(prices: pd.DataFrame, lookback: int) -> dict[str, np.ndarr
     log_p = np.log(prices.to_numpy(dtype=np.float64))  # (n_dates, A); NaN where missing
     n_dates, n_assets = log_p.shape
     T = n_dates - 1
-    X = np.zeros((n_assets, T, lookback + 3), dtype=np.float32)
+    X = np.zeros((n_assets, T, n_features(lookback)), dtype=np.float32)
     y = np.zeros((n_assets, T), dtype=np.float32)
+    scale = np.ones((n_assets, T), dtype=np.float32)
+    offset = np.zeros((n_assets, T), dtype=np.float32)
     valid = np.zeros((n_assets, T), dtype=bool)
     for a in range(n_assets):
         windows = sliding_window_view(log_p[:, a], lookback)[:-1]  # ends at t = lookback-1 .. n_dates-2
         ends = np.arange(lookback - 1, n_dates - 1)
         target = log_p[ends + 1, a] - log_p[ends, a]
-        ok = np.isfinite(windows).all(axis=1) & np.isfinite(target)
-        feats = haar_features(np.where(ok[:, None], windows, 0.0))
-        X[a, ends[ok]] = feats[ok].astype(np.float32)
+        complete = np.isfinite(windows).all(axis=1) & np.isfinite(target)
+        mu, sigma = window_statistics(np.where(complete[:, None], windows, 0.0))
+        ok = complete & (sigma > 0)  # a window of equal closes cannot be normalized (brief S2: dropped)
+        w = windows[ok]
+        X[a, ends[ok]] = window_features(w).astype(np.float32)
         y[a, ends[ok]] = target[ok].astype(np.float32)
+        scale[a, ends[ok]] = sigma[ok].astype(np.float32)
+        offset[a, ends[ok]] = (mu[ok] - w[:, -1]).astype(np.float32)
         valid[a, ends[ok]] = True
     days = _days(pd.DatetimeIndex(prices.index))
-    return {"X": X, "y": y, "valid": valid, "end_day": days[:-1], "target_day": days[1:]}
+    return {"X": X, "y": y, "scale": scale, "offset": offset, "valid": valid, "end_day": days[:-1],
+            "target_day": days[1:]}
 
 
 def prepare_bank(cfg: StudyConfig) -> Path:
@@ -109,4 +124,5 @@ def load_bank(cfg: StudyConfig, key: str, expected_sha256: str) -> Bank:
     tickers = tuple(blob["tickers"])
     if tickers != ALL_TICKERS:
         raise DataIntegrityError(str(pt_path), ",".join(ALL_TICKERS), ",".join(tickers))
-    return Bank(blob["X"], blob["y"], blob["valid"], blob["end_day"], blob["target_day"], tickers, key, actual)
+    return Bank(blob["X"], blob["y"], blob["scale"], blob["offset"], blob["valid"], blob["end_day"],
+                blob["target_day"], tickers, key, actual)

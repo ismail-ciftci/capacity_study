@@ -63,7 +63,7 @@ def recipe_tables(cfg: StudyConfig, raws: list[RecipeRaw]) -> tuple[pd.DataFrame
         v1a = train_r2 - tr[:, -2 * blk:-blk].mean(axis=1)
         v1b = test_r2 - te[:, -2 * blk:-blk].mean(axis=1)
         gap = train_r2 - test_r2
-        spread = p_te.std(axis=1, ddof=1)
+        spread = raw.outputs_test[ok].std(axis=1, ddof=1)   # raw output, window units (brief S9)
         rwc = raw.rel_weight_change[ok]
         enough = ok.sum() >= 2
         rows.append(base | {

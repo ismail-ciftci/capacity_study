@@ -105,16 +105,21 @@ def test_pause_resume_is_bit_identical(tiny, tmp_path):
     assert events[:2] == ["start", "checkpoint"] and "pause" in events and "resume" in events
 
 
-def test_trials_share_init_seeds_differ(tiny, tmp_path):
+def test_trials_paired_by_seed(tiny, tmp_path):
     cfg, cfg_path = tiny
     root = _setup_study(cfg, cfg_path, tmp_path)
     spec = pack_jobs(cfg, "calibration")[0]
     ctx = _single_job_ctx(cfg, root, spec)
-    keys_by_recipe = {}
+    tu = cfg.tuning
+    assert len(ctx.members) == len(spec.recipe_ids) * tu.n_trials * tu.seeds_per_trial
+    keys = {}
     for m in ctx.members:
-        keys_by_recipe.setdefault(m.recipe_id, set()).add(m.stream_key)
-    assert all(len(keys) == 1 for keys in keys_by_recipe.values())       # trials share init + order
-    assert len({next(iter(k)) for k in keys_by_recipe.values()}) == 2    # recipes independent
+        keys.setdefault((m.recipe_id, m.seed), set()).add(m.stream_key)
+        assert m.role == "trial"
+    assert all(len(k) == 1 for k in keys.values())                            # seed j shared by every trial
+    assert len({next(iter(k)) for k in keys.values()}) == len(keys)            # seeds and recipes independent
+    trials = {(m.recipe_id, m.role_index): (m.lr, m.wd) for m in ctx.members}
+    assert len(trials) == len(spec.recipe_ids) * tu.n_trials                   # one point per trial
 
 
 _CLAIM_SCRIPT = """

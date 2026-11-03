@@ -1,7 +1,7 @@
 """Random streams. Every stream is a numpy SeedSequence child of the study root seed.
 
-Member key = (phase code, recipe_id, stream index). Tuning trials of one recipe share stream index 0, so they share
-initialization and data order (paired trials). Final seeds use stream index = seed index. Streams of different
+Member key = (phase code, recipe_id, stream index). In tuning, stream index = seed index within the trial, and seed j
+is shared by every trial of the recipe, so trials are paired seed by seed. Final seeds use stream index = seed index. Streams of different
 recipes or phases share nothing. Data order for epoch e is derived from (key, e), so resuming needs no RNG state.
 """
 import numpy as np

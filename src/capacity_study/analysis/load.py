@@ -24,6 +24,7 @@ class RecipeRaw:
     test_curve: np.ndarray | None     # (S, E) R2 on the test window, at x
     preds_train: np.ndarray | None    # (S, n_train_side) final-epoch predictions
     preds_test: np.ndarray | None     # (S, n_test)
+    outputs_test: np.ndarray | None   # (S, n_test) final-epoch raw network output in window units (brief S9 spread)
     rel_weight_change: np.ndarray | None  # (S,) ||x - x1|| / ||x1|| over weight matrices
     finite: np.ndarray | None         # (S,) True if the seed stayed finite throughout
 
@@ -58,13 +59,13 @@ def load_recipes(cfg: StudyConfig, paths: StudyPaths) -> tuple[list[RecipeRaw], 
         members = job["members"]
         if not members:
             for rid in spec.recipe_ids:
-                out[rid] = RecipeRaw(recipes[rid], tuned[rid], spec.job_id, n_train, b, *([None] * 6))
+                out[rid] = RecipeRaw(recipes[rid], tuned[rid], spec.job_id, n_train, b, *([None] * 7))
             continue
         metrics = read_metrics(jp, epochs)
         preds = torch.load(jp.preds / f"e{epochs:04d}.pt", map_location="cpu", weights_only=True)
         for rid in spec.recipe_ids:
             if tuned[rid].untunable:
-                out[rid] = RecipeRaw(recipes[rid], tuned[rid], spec.job_id, n_train, b, *([None] * 6))
+                out[rid] = RecipeRaw(recipes[rid], tuned[rid], spec.job_id, n_train, b, *([None] * 7))
                 continue
             idx = [m["index"] for m in members if m["recipe_id"] == rid]
             sub = metrics[metrics["member"].isin(idx)]
@@ -77,5 +78,5 @@ def load_recipes(cfg: StudyConfig, paths: StudyPaths) -> tuple[list[RecipeRaw], 
             out[rid] = RecipeRaw(recipes[rid], tuned[rid], spec.job_id, n_train, b,
                                  curve("r2_train_x"), curve("r2_eval_x"),
                                  preds["train_side"][idx].double().numpy(), preds["eval"][idx].double().numpy(),
-                                 (num / den).numpy(), finite)
+                                 preds["eval_output"][idx].double().numpy(), (num / den).numpy(), finite)
     return [out[rid] for rid in sorted(out)], sources

@@ -1,4 +1,5 @@
-"""Tuning protocol: Halton trial points, objective, best-trial selection, edge hits, range freezing.
+"""Tuning protocol (brief S7): Halton trial points, per-seed objective, mean over a trial's seeds, best-trial
+selection, edge hits, range freezing.
 
 Trial points come from scipy.stats.qmc.Halton (the engine Optuna's QMCSampler wraps) because QMCSampler samples
 the first trial with its random independent sampler when trials are asked before any completes. Results are
@@ -63,9 +64,14 @@ class TuningResult:
 
 
 def objective(r2_eval_tail: np.ndarray, finite_all: np.ndarray) -> list[float | None]:
-    """r2_eval_tail: (tail_epochs, n_trials); finite_all: (n_trials,) bool over the whole run."""
+    """Per member. r2_eval_tail: (tail_epochs, members); finite_all: (members,) bool over the whole run."""
     means = r2_eval_tail.mean(axis=0)
     return [float(m) if ok and np.isfinite(m) else None for m, ok in zip(means, finite_all)]
+
+
+def trial_objectives(seed_objectives: list[list[float | None]]) -> list[float | None]:
+    """Per trial: the mean of its seeds' objectives; None (infeasible) if any seed is infeasible (brief S7)."""
+    return [None if any(o is None for o in seeds) else float(np.mean(seeds)) for seeds in seed_objectives]
 
 
 def select_best(recipe_id: int, regularization: str, points: list[dict[str, float]],

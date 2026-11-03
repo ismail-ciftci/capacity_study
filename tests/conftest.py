@@ -21,7 +21,7 @@ def tiny_config_dict(tmp: Path) -> dict:
         "training": {"epochs": 6, "steps_per_epoch": 3, "warmup_fraction": 0.2, "beta": 0.9, "beta2": 0.999,
                      "eps": 1e-8, "leaky_slope": 0.01, "checkpoint_every": 2, "pred_snapshot_every": 2,
                      "eval_chunk": 64},
-        "tuning": {"n_trials": 3, "halton_seed": 0, "objective_tail": 2, "tuning_fraction": 0.8,
+        "tuning": {"n_trials": 3, "seeds_per_trial": 2, "halton_seed": 0, "objective_tail": 2, "tuning_fraction": 0.8,
                    "calibration_lr": [1e-5, 1e-1], "calibration_wd": [1e-5, 1.0], "range_margin_decades": 0.75,
                    "calibration_cells": [[1, 1], [2, 2]], "calibration_corners": [[1, 8], [2, 8]]},
         "seeds": {"n_seeds": 3},

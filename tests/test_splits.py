@@ -27,8 +27,8 @@ def _bank(tmp_path):
     write_synthetic_prices(tmp_path)
     prices = pd.read_parquet(tmp_path / "data/raw/prices.parquet")
     arrays = build_bank_arrays(prices, 16)
-    return Bank(*(torch.from_numpy(arrays[k]) for k in ("X", "y", "valid", "end_day", "target_day")),
-                ALL_TICKERS, "k", "s")
+    keys = ("X", "y", "scale", "offset", "valid", "end_day", "target_day")
+    return Bank(*(torch.from_numpy(arrays[k]) for k in keys), ALL_TICKERS, "k", "s")
 
 
 @pytest.mark.parametrize("phase", ["tuning", "final"])

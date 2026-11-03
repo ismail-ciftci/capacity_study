@@ -16,7 +16,7 @@ import torch
 
 from capacity_study.data.bank import load_bank
 from capacity_study.data.splits import job_data
-from capacity_study.orchestrate import estimate_memory_mb, load_study
+from capacity_study.orchestrate import estimate_memory_mb, load_study, members_per_recipe
 from capacity_study.recipes import JobSpec, grid, pack_jobs
 from capacity_study.store import StudyPaths, atomic_write_json, code_state, runtime_info, utc_now
 from capacity_study.train import JobContext, run_job, tuning_members
@@ -29,7 +29,7 @@ def _shapes(root: Path) -> list[dict]:
     rows = []
     for spec in pack_jobs(cfg, "tuning"):
         n = int(job_data(bank, cfg, "calibration", spec.tier, spec.history).train.numel())
-        k = cfg.tuning.n_trials * len(spec.recipe_ids)
+        k = members_per_recipe(cfg, "tuning") * len(spec.recipe_ids)
         params = 19 * spec.width + spec.width + (spec.depth - 1) * (spec.width ** 2 + spec.width) + spec.width + 1
         rows.append({"tier": spec.tier, "history": spec.history, "depth": spec.depth, "width": spec.width,
                      "n_train": n, "members": k, "cost": k * n * params,

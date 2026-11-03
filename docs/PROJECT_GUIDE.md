@@ -442,9 +442,9 @@ grid     = product(depth[4], width[4], regularization[2], tier[5], history[3])  
 
 ## Chapter 7. Fair footing: hyperparameter tuning
 
-Synced: S7 3d29ce0d
+Synced: S7 84c0fc28
 
-**In one line.** Every recipe tunes its learning rate (and lambda, if it uses weight decay) with the same 32-trial quasi-random search over ranges shared by all recipes; a small calibration run sets those ranges.
+**In one line.** Every recipe tunes its learning rate (and lambda, if it uses weight decay) with the same quasi-random search, 16 trials of 4 seeds each, over ranges shared by all recipes; a small calibration run sets those ranges.
 
 **Builds on.** Chapters 3, 5 and 6.
 
@@ -459,52 +459,52 @@ Synced: S7 3d29ce0d
 **In this study**
 - Tuning happens per recipe, in the tuning stage. It is a means, not the subject of study.
 - **Tuned:** the learning rate, and lambda when weight decay is on. beta, beta2, eps and warmup stay fixed. This follows Defazio et al.'s practical need [paper: Defazio].
-- **Method:** 32 scrambled Halton points with a fixed seed, mapped log-uniformly onto the ranges, the same points for every recipe of the same dimension. The points are drawn with scipy's Halton generator, the engine behind Optuna's quasi-Monte Carlo sampler, because Optuna's sampler draws the first trial of a batch requested in advance at random; Optuna stores the trials. Every trial runs the full 500 epochs, with no pruning.
-- **Batched trials:** a recipe's trials train as one batched model, each member with its own hyperparameters, weights and optimizer state. All members share the initialization and data order, so comparisons between trials are paired. The averaging weights do not depend on the learning-rate scale (it cancels), so they are the same for every member [calc].
-- **Objective (maximized):** validation R^2 of the implied return, using the evaluation weights, on the test asset, averaged over the last 25 epochs.
+- **Method:** 16 scrambled Halton points with a fixed seed, mapped log-uniformly onto the ranges, the same points for every recipe of the same dimension. The points are drawn with scipy's Halton generator, the engine behind Optuna's quasi-Monte Carlo sampler, because Optuna's sampler draws the first trial of a batch requested in advance at random; Optuna stores the trials. Every trial runs the full 500 epochs, with no pruning.
+- **Four seeds per trial:** each trial is trained with 4 seeds, and its score is the mean over them. This blunts the winner's curse: a setting that blows up on some seeds and gets lucky on one no longer wins. With a single seed per trial, seed noise was larger than the real differences between learning rates [measured on a project run].
+- **Batched trials:** a recipe's 16 x 4 = 64 (trial, seed) pairs train as one batched model, each member with its own hyperparameters, weights and optimizer state. Seed j has the same initialization and data order in every trial, so comparisons between trials are paired seed by seed. The averaging weights do not depend on the learning-rate scale (it cancels), so they are the same for every member [calc].
+- **Objective (maximized):** validation R^2 of the implied return, using the evaluation weights, on the test asset, averaged over the last 25 epochs and then over the trial's 4 seeds.
 - **Calibration run:** 24 recipes at the extremes (Chapter 13), with wide ranges: learning rate 1e-5 to 1e-1 and lambda 1e-5 to 1, log-uniform [from memory]. The upper end leaves room for schedule-free learning rates, which ran about 1 to 10 times higher than usual [paper: Defazio, Sec. 4.1, App. G].
 - **Main-run ranges:** one shared range per tuned hyperparameter, for *all* recipes. The best learning rate moves with batch size [paper: Li et al.; transfer is inference] and with width [from memory]. Ranges per tier x history cell would follow batch size only, and each data cell would get its own search space, so the data-size factor would carry tuning quality. -> **C6**
 - **Range rule:** each main-run range spans from the lowest to the highest best value found in calibration, widened by 0.75 decade on each side.
 - **Edge hits** are flagged, reported and marked on the lattices (Chapter 12), not re-tuned, since re-tuning would break the single protocol.
 - **Tuning-to-final transfer:** tuned values are reused unchanged in the final stage, at the same step count and an about 1.25 times larger batch [calc]. No project paper covers this transfer for schedule-free AdamW. -> **G8**
-- **Infeasible trials** (diverged or NaN) count as failed with the worst objective; the infeasible fraction per recipe is reported. lr x lambda is reported alongside lambda.
-- **Still open: seeds per trial.** With one seed per trial, seed noise in the objective is larger than the real differences between learning rates, so the best of 32 trials is largely the luckiest, and the maximum favours settings with high seed variance: the winner's curse [measured on a project run]. The candidate is 16 trials with 4 seeds each, scored by the mean over the seeds; until decided, the working reading is 32 trials with one seed each. -> **G9**
+- **Infeasible trials** (any seed diverged or NaN) count as failed with the worst objective; the infeasible fraction per recipe is reported. lr x lambda is reported alongside lambda.
 
 **Worked example**
 ```text
 # Recipe E, tuning stage: N ~ 16,800, B ~ 672
 space    = {lr: logUniform(main_lr_range), lambda: logUniform(main_wd_range)}   # 2-D: weight decay is on
-trials   = Halton(scrambled, seed=fixed).sample(n=32) mapped onto space          # drawn up front
-model    = batched(32 members, shared init and data order, member i uses trials[i])
+trials   = Halton(scrambled, seed=fixed).sample(n=16) mapped onto space          # drawn up front
+model    = batched(16 x 4 members; member (i, j) uses trials[i] and seed j's init and data order)
 train model for 500 epochs x 25 steps
-score_i  = mean(validation_R2_testasset(x_i, epochs 476..500))
+score_ij = mean(validation_R2_testasset(x_ij, epochs 476..500))
+score_i  = mean_j score_ij          # -inf if any seed of trial i diverged
 best     = argmax_i score_i
 edge_hit = best value within one trial spacing of either range end, per tuned hyperparameter
-infeasible_fraction = (# diverged or NaN members) / 32
+infeasible_fraction = (# trials with a diverged or NaN seed) / 16
 # final stage: reuse best (lr, lambda) unchanged; N ~ 21,000, B ~ 840 (~1.25x larger)
 ```
 Recipe E's data cell (tier 3 x 7 years) is one of the three calibration cells. Its capacity (2, 32) is not a calibration corner, so Recipe E itself is not calibrated.
 
 **Watch out**
-- **Unequal tuning effort.** With 32 trials in every recipe, weight-decay recipes spread their trials over two dimensions while no-decay recipes use one. If the best learning rate depends on lambda, weight-decay recipes are tuned less precisely [inference].
+- **Unequal tuning effort.** With 16 trials in every recipe, weight-decay recipes spread their trials over two dimensions while no-decay recipes use one. If the best learning rate depends on lambda, weight-decay recipes are tuned less precisely [inference].
 - **Calibration at the range edge.** A calibration best value at an end of the wide range puts the main-run range beyond what calibration tested, by the margin.
 - **Pairing may fade.** A one-bit change at initialization produces about as much variability as any other source [paper: Summers, Table 3], and trials differ in hyperparameters from the first step [inference].
-- The objective is noisiest at tier 1 with 3 years, with about 150 validation windows. -> **C4**
+- Four seeds halve the seed noise of the objective but do not remove it; it is largest at tier 1 with 3 years, with about 150 validation windows. -> **C4**
 - Batched trials cost little memory, but compute still grows with the number of members once the hardware is saturated [inference].
-- Gaps: tuning-to-final transfer (**G8**); objective, ranges, trial count and seeds per trial (**G9**).
+- Gaps: tuning-to-final transfer (**G8**); objective, ranges, trial and seed counts (**G9**).
 
 **Further reading and carry forward**
 - Tuning Playbook: "Creating a set of studies"; "Why use quasi-random search"; "Extracting insight from experimental results" (edge check) [paper: Playbook].
 - Choi et al. 2019, *On Empirical Comparisons of Optimizers for Deep Learning*, abstract and Sec. 1 [paper: Choi].
-- 32 quasi-random trials per recipe over ranges shared by all recipes, set by a 24-recipe calibration run plus a 0.75-decade margin.
-- The objective is validation R^2 on the test asset, averaged over the last 25 epochs. Edge hits are flagged, not fixed.
-- Seeds per trial is still open; with one seed, tuning partly picks luck.
+- 16 quasi-random trials x 4 seeds per recipe over ranges shared by all recipes, set by a 24-recipe calibration run plus a 0.75-decade margin.
+- The objective is validation R^2 on the test asset, averaged over the last 25 epochs and over 4 seeds. Edge hits are flagged, not fixed.
 
 ---
 
 ## Chapter 8. Randomness and judging differences
 
-Synced: S8 7e546193
+Synced: S8 af2c037d
 
 **In one line.** Each recipe is trained with 32 independent seeds, and differences between recipes are judged by *equivalence* tests with margins fixed by alpha, beta and n alone.
 
@@ -518,7 +518,7 @@ Synced: S8 7e546193
 
 **In this study**
 - Every metric's variance is accounted for, using **32 seeds** per recipe. The relative error of a seed standard deviation is about 13% at 32 seeds [calc].
-- **What a seed is.** One seed sets both initialization and data order; bundling them is supported by Summers and Dinneen [paper: Summers]. Each seed draws from its own random stream, independent of which other seeds share its batch, and streams are independent *across* recipes: seed i of one recipe shares nothing with seed i of another, so comparisons between recipes are unpaired. Tuning trials within a recipe, by contrast, share initialization and data order (Chapter 7).
+- **What a seed is.** One seed sets both initialization and data order; bundling them is supported by Summers and Dinneen [paper: Summers]. Each seed draws from its own random stream, independent of which other seeds share its batch, and streams are independent *across* recipes: seed i of one recipe shares nothing with seed i of another, so comparisons between recipes are unpaired. In tuning, by contrast, seed j of a recipe is shared by all of its trials (Chapter 7).
 - Seeds run batched on the same data; each seed shuffles its own minibatches.
 - **Error rates:** alpha = 0.05 and beta = 0.2, marked provisional by the owner.
 - **Margins**, fixed for every comparison and derived from alpha, beta and n only:
@@ -801,9 +801,9 @@ Recipe E appears in the "weight decay" lattice, in the outer cell (tier 3, 7 yea
 
 ## Chapter 13. Running it
 
-Synced: S13 61a72ce8
+Synced: S13 4156ada1
 
-**In one line.** Calibrate 24 extreme recipes, run all 480 recipes (32 trials, then 32 seeds each), then analyze, with nothing looping back.
+**In one line.** Calibrate 24 extreme recipes, run all 480 recipes (16 trials x 4 seeds, then 32 seeds each), then analyze, with nothing looping back.
 
 **Builds on.** Chapters 7, 8 and 12.
 
@@ -812,19 +812,19 @@ Synced: S13 61a72ce8
 **In this study**
 - Every recipe is run once: no sampling, no iteration. Changing the recipe space based on results is out of scope.
 - **Run order**
-  1. **Calibration run:** 24 recipes at the extremes of what moves the best hyperparameters: three batch-size cells, tier 1 x 3 years (B ~ 30), tier 3 x 7 years (the middle, because the best Adam learning rate peaks at an intermediate batch size [paper: Li et al.]) and tier 4 x 18 years (B ~ 4,300); the four capacity corners, (depth, width) = (1, 8), (1, 64), (8, 8), (8, 64); and both regularization options. Tier 5 is left out because it has tier 4's batch size [inference]. The run uses the wide ranges, 32 trials each, tuning stage only; its best values set the main-run ranges and its results are otherwise discarded.
-  2. **Main run:** all 480 recipes, 32 trials each in the tuning stage, then 32 seeds each in the final stage.
+  1. **Calibration run:** 24 recipes at the extremes of what moves the best hyperparameters: three batch-size cells, tier 1 x 3 years (B ~ 30), tier 3 x 7 years (the middle, because the best Adam learning rate peaks at an intermediate batch size [paper: Li et al.]) and tier 4 x 18 years (B ~ 4,300); the four capacity corners, (depth, width) = (1, 8), (1, 64), (8, 8), (8, 64); and both regularization options. Tier 5 is left out because it has tier 4's batch size [inference]. The run uses the wide ranges, 16 trials x 4 seeds each, tuning stage only; its best values set the main-run ranges and its results are otherwise discarded.
+  2. **Main run:** all 480 recipes, 16 trials x 4 seeds each in the tuning stage, then 32 seeds each in the final stage.
   3. **Analysis:** quantities (Chapter 9), status (Chapter 10), characteristics and the functional ANOVA (Chapter 11), regionalization and visual outputs (Chapter 12).
-- **Cost:** about 11 minutes for calibration and about 2.8 hours for the main run, on two GPUs, with trials and seeds trained in batches [measured].
+- **Cost:** with 32 single-seed trials per recipe, calibration took about 11 minutes and the main run about 2.8 hours on two GPUs [measured]; four seeds per trial double the tuning stage.
 - **Still open:** a batch-size control, rerunning a subset at more steps per epoch to separate batch-size from data-size effects (C6), is deferred by the owner.
 
 **Worked example**
 ```text
 calibration_cells   = [(tier 1, 3y), (tier 3, 7y), (tier 4, 18y)]
 calibration_corners = [(1, 8), (1, 64), (8, 8), (8, 64)]
-calibration = cells x corners x {none, wd}                        # 24 recipes x 32 trials = 768 runs
+calibration = cells x corners x {none, wd}                        # 24 recipes x 64 members = 1,536 runs
 ranges      = widen([min best, max best], 0.75 decade each side)  # per tuned hyperparameter
-main        = 480 recipes x (32 trials + 32 seeds)                # 30,720 runs
+main        = 480 recipes x (16 x 4 tuning + 32 final seeds)     # 46,080 runs
 # Recipe E: its cell (tier 3, 7y) is calibrated; E itself is not. It enters the main run only.
 ```
 
@@ -833,7 +833,7 @@ main        = 480 recipes x (32 trials + 32 seeds)                # 30,720 runs
 
 **Further reading and carry forward**
 - Li et al. 2024, Fig. 1, for why a middle batch-size cell is included [paper: Li et al.].
-- Calibration (24 recipes) -> main run (480 x 32 trials + 480 x 32 seeds) -> analysis. Nothing loops back.
+- Calibration (24 recipes) -> main run (480 x 64 tuning members + 480 x 32 seeds) -> analysis. Nothing loops back.
 
 ---
 
@@ -871,7 +871,7 @@ Synced: S14 e132e954
 
 ## Chapter 15. Where evidence is thin (evidence-gap register)
 
-Synced: S15 1ae48215
+Synced: S15 d7cf0b09
 
 **In one line.** Fifteen design choices that no project paper directly supports, with the nearest support and what would close each gap; and how the project's literature is kept.
 
@@ -894,7 +894,7 @@ Synced: S15 1ae48215
 | G6 | 500 epochs, 25 steps per epoch | 5 | Consequences only (Shallue, Playbook) | n/a |
 | G7 | PyTorch default initialization [from memory] | 4 | Chizat, Kunin (initialization scale moves lazy vs. rich) | n/a |
 | G8 | Reusing tuned values at the same steps and a 1.25x larger batch, under schedule-free AdamW | 7 | Defazio (training length only) | n/a |
-| G9 | Tuning objective (last-25-epoch mean); shared ranges from extreme recipes plus 0.75 decade; 32 trials; one seed per trial (open) | 7 | Choi (ranges, edge check); Defazio (learning-rate shift); Playbook (search-space refinement); Li et al. (batch-size dependence) | n/a |
+| G9 | Tuning objective (last-25-epoch mean); shared ranges from extreme recipes plus 0.75 decade; 16 trials x 4 seeds, objective averaged over seeds | 7 | Choi (ranges, edge check); Defazio (learning-rate shift); Playbook (search-space refinement); Li et al. (batch-size dependence) | n/a |
 | G10 | Fixed eps with small gradients | 5 | Choi (Adam: eps matters); Defazio (eps not tuned) | n/a |
 | G11 | Saturation criterion: V1 on the test asset; shared flatness threshold from delta_mu and the median seed standard deviation | 9, 10 | Defazio (meaning of flatness); Lakens (margin) | No paper on the criterion itself |
 | G12 | Overfitting criterion via the T1 log ratio with delta_sigma; no direct measure of the bias share | 9, 10 | Neal (decomposition); Summers (diversity) | Jiang et al. 2022 (candidate; classification only) |

@@ -17,22 +17,20 @@ Characterizes training-saturated MLPs in the bias regime over a closed grid of 4
 
 ## Brief ahead of code
 
-The brief of 2026-11-03 is not yet implemented in these parts; the code still runs the earlier representation.
-Remove each line once code, config and tests follow the brief.
-- S1, S2: window normalization, re-injected mu and log sigma, next-log-price target with de-normalized forecast and the
-  loss on the forecast (code: `data/features.py`, `data/bank.py`, `train.py`).
-- S9: prediction spread on the network output in window units (code: `train.py`, `analysis/quantities.py`).
+Parts of the brief that code, config or tests do not follow yet; remove each line once they do.
+- None currently.
 
 ## Conventions
 
 ### Vocabulary
 - **recipe**: one option per factor (depth, width, regularization, tier, history); `recipe_id` = index in
   `product(depth, width, reg, tier, history)` in that order.
-- **trial**: one hyperparameter configuration of a recipe in the tuning stage (32 per recipe).
-- **seed**: one final-stage training run of a recipe (32 per recipe).
-- **member**: one slice of a batched model (a trial or a seed).
+- **trial**: one hyperparameter configuration of a recipe in the tuning stage (16 per recipe, 4 seeds each).
+- **seed**: one training run: a trial's seed j in tuning (shared by all trials of the recipe), or one of the 32
+  final-stage runs of a recipe.
+- **member**: one slice of a batched model: a (trial, seed) pair in tuning, a seed in the final stage.
 - **job**: the unit of execution and of results: one batched model packing the two regularization recipes of
-  one (phase, tier, history, depth, width); K = 64 members.
+  one (phase, tier, history, depth, width); K = 128 members in tuning and calibration, 64 in the final stage.
 - **phase**: `calibration` | `tuning` | `final`.
 - **study**: one directory `runs/<study>/` bound to one config hash.
 
@@ -54,6 +52,9 @@ Remove each line once code, config and tests follow the brief.
 - Window membership in a stage/history is decided by its **target date**.
 - No forward fill; windows containing a missing day are dropped.
 - DWT ordering and sign: details finest to coarsest, each (a - b)/sqrt(2), as in the brief S2.
+- Bank (`data/bank.py`) stores per window the 19 features, the realized return y, scale = sigma and
+  offset = mu - log P(t). The implied return is scale * output + offset; loss, R^2, T1 and prediction snapshots use
+  it, and prediction spread uses the raw output (stored as `eval_output` in final snapshots).
 
 ### Training (brief S4, S5)
 - Optimizer: `BatchedAdamWScheduleFree`, a vectorized port of `schedulefree.AdamWScheduleFree` (pinned version)
@@ -65,9 +66,12 @@ Remove each line once code, config and tests follow the brief.
 ### Tuning (brief S7)
 - Halton points: `scipy.stats.qmc.Halton(scramble=True, seed=<fixed>)`, same seed for every recipe; results
   stored in Optuna via `add_trial`.
-- Infeasible trial: a non-finite loss or parameter at any step; worst objective; Optuna state FAIL.
+- Member objective: mean validation R^2 over the last `objective_tail` epochs; a member is infeasible if any loss
+  or parameter is non-finite at any epoch. Trial objective: mean over its seeds, infeasible if any seed is (worst
+  objective, Optuna state FAIL). The infeasible fraction counts trials. `recipe_<id>.json` keeps the per-seed
+  objectives as `seed_objectives`.
 - Ties in the objective go to the lowest trial index.
-- Edge hit: chosen value within (log range)/32 of either range end, per dimension.
+- Edge hit: chosen value within (log range)/n_trials of either range end, per dimension.
 - Untunable recipe (all trials infeasible): final stage skipped; analysis assigns sentinel quantities from config
   (+/-1e12, outside any real result; asserted >= 10x beyond every real value, since barely trained nets can reach
   R^2 ~ -1e4), status label `untunable`; two untunable recipes merge (D = 0), never with tunable ones; figures draw

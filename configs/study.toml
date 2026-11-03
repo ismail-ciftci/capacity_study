@@ -34,7 +34,8 @@ pred_snapshot_every = 25
 eval_chunk = 8192                # windows per eval forward chunk (memory only; does not change values)
 
 [tuning]                         # [Ch.7, Ch.13]
-n_trials = 32
+n_trials = 16
+seeds_per_trial = 4              # [Ch.7] objective = mean over a trial's seeds
 halton_seed = 0
 objective_tail = 25
 tuning_fraction = 0.8
