@@ -375,7 +375,7 @@ Every quantity is defined once, here. All use the t+1 output, the final stage, a
   1. Calibration run: 24 recipes at the extremes of what moves the best hyperparameters. Batch size: tier 1 x 3 years (B ~ 30), tier 3 x 7 years (middle, because the best Adam learning rate peaks at an intermediate batch size [paper: Li et al.]), tier 4 x 18 years (B ~ 4,300). Capacity: the four depth x width corners (1, 8), (1, 64), (8, 8), (8, 64). Regularization: both options. Tier 5 is left out because it has tier 4's batch size [inference]. Wide ranges, 16 trials x 4 seeds per recipe, tuning stage only. Its best values set the main-run ranges (S7); its results are otherwise discarded.
   2. Main run: all 480 recipes, 16 trials x 4 seeds each in the tuning stage, then 32 seeds each in the final stage.
   3. Analysis: the quantities of S9, status (S10), characteristics and the functional ANOVA decomposition (S11), and regionalization and visual outputs (S12).
-- Cost [measured, at 32 trials and 32 seeds per recipe]: calibration about 11 minutes and the main run about 2.8 hours of wall time on two GPUs, with trials and seeds batched per recipe pair.
+- Cost [measured, at 16 trials x 4 seeds in tuning and 32 seeds in the final stage]: calibration about 17 minutes and the main run about 4.6 hours of wall time on two GPUs, with trials and seeds batched per recipe pair.
 
 **Left open**
 - A batch-size control (rerunning a subset at more steps per epoch to separate batch-size from data-size effects, C6): deferred by the owner; may be investigated later.

@@ -88,5 +88,5 @@ Parts of the brief that code, config or tests do not follow yet; remove each lin
 - Bench (one RX 6650 XT, 64-member packs, steady-state s/epoch at one worker): d1w8 tier1/3y 0.022,
   d4w8 tier3/18y 0.055, d8w64 tier4-5/18y 1.02. Only tiny jobs scale with more workers; big ones saturate the GPU,
   and 4+ concurrent big jobs thrash (VRAM). Use `--workers-per-device 3` and let the memory-budget claim rule
-  (estimates ~2x measured peak) keep big jobs to 2 per GPU. Measured: calibration ~11 min, main run ~2.8 h wall
+  (estimates ~2x measured peak) keep big jobs to 2 per GPU. Measured (16x4 tuning): calibration ~17 min, main run ~4.6 h wall
   on both GPUs.

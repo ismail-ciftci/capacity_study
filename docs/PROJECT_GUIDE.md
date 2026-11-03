@@ -801,7 +801,7 @@ Recipe E appears in the "weight decay" lattice, in the outer cell (tier 3, 7 yea
 
 ## Chapter 13. Running it
 
-Synced: S13 4156ada1
+Synced: S13 00a1b14e
 
 **In one line.** Calibrate 24 extreme recipes, run all 480 recipes (16 trials x 4 seeds, then 32 seeds each), then analyze, with nothing looping back.
 
@@ -815,7 +815,7 @@ Synced: S13 4156ada1
   1. **Calibration run:** 24 recipes at the extremes of what moves the best hyperparameters: three batch-size cells, tier 1 x 3 years (B ~ 30), tier 3 x 7 years (the middle, because the best Adam learning rate peaks at an intermediate batch size [paper: Li et al.]) and tier 4 x 18 years (B ~ 4,300); the four capacity corners, (depth, width) = (1, 8), (1, 64), (8, 8), (8, 64); and both regularization options. Tier 5 is left out because it has tier 4's batch size [inference]. The run uses the wide ranges, 16 trials x 4 seeds each, tuning stage only; its best values set the main-run ranges and its results are otherwise discarded.
   2. **Main run:** all 480 recipes, 16 trials x 4 seeds each in the tuning stage, then 32 seeds each in the final stage.
   3. **Analysis:** quantities (Chapter 9), status (Chapter 10), characteristics and the functional ANOVA (Chapter 11), regionalization and visual outputs (Chapter 12).
-- **Cost:** with 32 single-seed trials per recipe, calibration took about 11 minutes and the main run about 2.8 hours on two GPUs [measured]; four seeds per trial double the tuning stage.
+- **Cost:** with 16 trials of 4 seeds per recipe, calibration took about 17 minutes and the main run about 4.6 hours on two GPUs [measured].
 - **Still open:** a batch-size control, rerunning a subset at more steps per epoch to separate batch-size from data-size effects (C6), is deferred by the owner.
 
 **Worked example**
