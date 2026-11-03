@@ -94,7 +94,7 @@ provides-extras = ["analysis"]
 [package.metadata.requires-dev]
 dev = [
     { name = "pytest", specifier = ">=9.2.0" },
-    { name = "schedulefree", specifier = ">=1.4.1" },
+    { name = "schedulefree", specifier = "==1.4.1" },
 ]
 
 [[package]]
