@@ -14,6 +14,7 @@ import platform
 import socket
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,10 +24,25 @@ import torch
 from capacity_study.errors import DirtyTreeError, OverwriteRefusedError, ProvenanceError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+REPLACE_ATTEMPTS = 8         # os.replace retries on Windows sharing violations (antivirus, indexer)
+REPLACE_BACKOFF_S = 0.25     # first wait; doubles per attempt (~32 s in total)
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def replace_with_retry(tmp: Path, path: Path) -> None:
+    """os.replace, retried on PermissionError: on Windows another process (antivirus, search indexer) can hold a
+    transient handle on the target. The last failure is re-raised."""
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(REPLACE_BACKOFF_S * 2 ** attempt)
 
 
 def atomic_write_bytes(path: Path, data: bytes) -> None:
@@ -36,7 +52,7 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
         f.write(data)
         f.flush()
         os.fsync(f.fileno())
-    os.replace(tmp, path)
+    replace_with_retry(tmp, path)
 
 
 def atomic_write_json(path: Path, obj: object) -> None:
@@ -53,7 +69,7 @@ def atomic_torch_save(path: Path, obj: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     torch.save(obj, tmp)
-    os.replace(tmp, path)
+    replace_with_retry(tmp, path)
 
 
 def append_jsonl(path: Path, record: dict) -> None:

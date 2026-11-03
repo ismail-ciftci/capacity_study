@@ -36,6 +36,8 @@ Parts of the brief that code, config or tests do not follow yet; remove each lin
 
 ### Results integrity
 - Only `DONE.json` (written last) marks a job complete. Completed jobs are never overwritten.
+- Atomic writes retry `os.replace` on `PermissionError` with backoff, then re-raise: on Windows, antivirus or the
+  indexer can hold a transient handle on a checkpoint.
 - Workers refuse a dirty git tree unless `--allow-dirty` (diff is recorded), and refuse to resume a checkpoint from
   another commit unless overridden (override is recorded).
 - Analysis outputs are derived and regenerable; analysis code only reads raw job outputs.
