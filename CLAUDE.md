@@ -34,6 +34,12 @@ Parts of the brief that code, config or tests do not follow yet; remove each lin
 - **phase**: `calibration` | `tuning` | `final`.
 - **study**: one directory `runs/<study>/` bound to one config hash.
 
+### Repository hygiene
+- `ITERATION_NOTES.md` is git-ignored and never committed: it may hold local paths and unconfirmed proposals.
+  Only what is distilled into the brief, guide, `CLAUDE.md` and code reaches git.
+- The root `README.md` is the public introduction and may summarize headline findings of the latest complete run,
+  naming the run. It is the one exception to "no run reports"; `docs/` still holds current guidance only.
+
 ### Results integrity
 - Only `DONE.json` (written last) marks a job complete. Completed jobs are never overwritten.
 - Atomic writes retry `os.replace` on `PermissionError` with backoff, then re-raise: on Windows, antivirus or the

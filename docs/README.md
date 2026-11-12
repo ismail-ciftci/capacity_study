@@ -13,7 +13,9 @@ The docs state current guidance only. Past versions, removed items and the runs 
 
 One iteration of the study:
 
-1. **Run and diagnose.** Write the diagnosis as a temporary working note outside `docs/`.
+1. **Run and diagnose.** Write the diagnosis as a temporary working note outside `docs/`: `ITERATION_NOTES.md` at the
+   repo root (git-ignored, local only). It holds the iteration's diagnosis, decisions and open questions between
+   changes, and is deleted once they are distilled.
 2. **Distil it into missing guidance.** Each problem becomes a Left-open item or a G entry in the brief, phrased as
    what the experiment lacks guidance on, not as what went wrong.
 3. **Find guidance, minimally.** Prefer one source that backs a whole mechanism over one source per detail. Add it

@@ -14,6 +14,9 @@ runs/
 cache/
 .pytest_cache/
 
+# Working note for the iteration in progress (docs/README.md change protocol); local only
+ITERATION_NOTES.md
+
 # Literature originals and text extractions (not redistributable; docs/literature/index.md records them by sha256)
 docs/literature/sources/
 docs/literature/text/
